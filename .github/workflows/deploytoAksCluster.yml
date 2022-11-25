@@ -1,0 +1,50 @@
+on: [push]
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@master
+    
+    - uses: azure/docker-login@v1
+      with:
+        login-server: aksregisterydominik2.azurecr.io
+        username: ${{ secrets.acr_aksregisterydominik2_username }}
+        password: ${{ secrets.acr_aksregisterydominik2_password }}
+    
+    - name: Build and push image to ACR
+      id: build-image
+      run: |
+        docker build "$GITHUB_WORKSPACE/" -f  "Dockerfile" -t aksregisterydominik2.azurecr.io/aksclusterdominik02:${{ github.sha }} --label dockerfile-path=Dockerfile
+        docker push aksregisterydominik2.azurecr.io/aksclusterdominik02:${{ github.sha }}
+    
+    - uses: azure/k8s-set-context@v1
+      with:
+         kubeconfig: ${{ secrets.aks_aksclusterdominik02_kubeConfig }}
+      id: login
+    
+    - name: Create namespace
+      run: |
+        namespacePresent=`kubectl get namespace | grep aks-cluster-dominik-02b851 | wc -l`
+        if [ $namespacePresent -eq 0 ]
+        then
+            echo `kubectl create namespace aks-cluster-dominik-02b851`
+        fi
+
+    - uses: azure/k8s-create-secret@v1
+      with:
+        namespace: aks-cluster-dominik-02b851
+        container-registry-url: aksregisterydominik2.azurecr.io
+        container-registry-username: ${{ secrets.acr_aksregisterydominik2_username }}
+        container-registry-password: ${{ secrets.acr_aksregisterydominik2_password }}
+        secret-name: aksclusterdodockerauth
+       
+    - uses: azure/k8s-deploy@v1.2
+      with:
+        namespace: aks-cluster-dominik-02b851
+        manifests: |
+          manifests/deployment.yml
+          manifests/service.yml
+        images: |
+          aksregisterydominik2.azurecr.io/aksclusterdominik02:${{ github.sha }}
+        imagepullsecrets: |
+          aksclusterdodockerauth
